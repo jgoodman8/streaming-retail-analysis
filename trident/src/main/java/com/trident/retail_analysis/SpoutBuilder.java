@@ -1,10 +1,10 @@
 package com.trident.retail_analysis;
 
-import org.apache.storm.kafka.BrokerHosts;
-import org.apache.storm.kafka.StringScheme;
-import org.apache.storm.kafka.trident.TransactionalTridentKafkaSpout;
-import org.apache.storm.kafka.trident.TridentKafkaConfig;
-import org.apache.storm.spout.SchemeAsMultiScheme;
+import backtype.storm.spout.SchemeAsMultiScheme;
+import storm.kafka.BrokerHosts;
+import storm.kafka.StringScheme;
+import storm.kafka.trident.TransactionalTridentKafkaSpout;
+import storm.kafka.trident.TridentKafkaConfig;
 
 public class SpoutBuilder {
 

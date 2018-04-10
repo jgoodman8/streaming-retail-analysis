@@ -8,6 +8,10 @@
     <artifactId>trident</artifactId>
     <version>1.0-SNAPSHOT</version>
 
+    <properties>
+        <jdk.version>1.7</jdk.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.storm</groupId>
@@ -44,5 +48,48 @@
         </dependency>
 
     </dependencies>
-    
+
+    <!--<build>-->
+    <!--<plugins>-->
+
+    <!--<plugin>-->
+    <!--<groupId>org.apache.maven.plugins</groupId>-->
+    <!--<artifactId>maven-compiler-plugin</artifactId>-->
+    <!--<version>2.3.2</version>-->
+    <!--<configuration>-->
+    <!--<source>${jdk.version}</source>-->
+    <!--<target>${jdk.version}</target>-->
+    <!--</configuration>-->
+    <!--</plugin>-->
+
+    <!--<plugin>-->
+    <!--<groupId>org.apache.maven.plugins</groupId>-->
+    <!--<artifactId>maven-assembly-plugin</artifactId>-->
+    <!--<version>2.4.1</version>-->
+    <!--<configuration>-->
+    <!--&lt;!&ndash; get all project dependencies &ndash;&gt;-->
+    <!--<descriptorRefs>-->
+    <!--<descriptorRef>jar-with-dependencies</descriptorRef>-->
+    <!--</descriptorRefs>-->
+    <!--&lt;!&ndash; MainClass in mainfest make a executable jar &ndash;&gt;-->
+    <!--<archive>-->
+    <!--<manifest>-->
+    <!--<mainClass>com.trident.retail_analysis.RetailAnalysis</mainClass>-->
+    <!--</manifest>-->
+    <!--</archive>-->
+
+    <!--</configuration>-->
+    <!--<executions>-->
+    <!--<execution>-->
+    <!--<id>make-assembly</id>-->
+    <!--&lt;!&ndash; bind to the packaging phase &ndash;&gt;-->
+    <!--<phase>package</phase>-->
+    <!--<goals>-->
+    <!--<goal>single</goal>-->
+    <!--</goals>-->
+    <!--</execution>-->
+    <!--</executions>-->
+    <!--</plugin>-->
+    <!--</plugins>-->
+    <!--</build>-->
 </project>

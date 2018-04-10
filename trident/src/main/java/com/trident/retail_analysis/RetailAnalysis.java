@@ -1,11 +1,11 @@
 package com.trident.retail_analysis;
 
-import org.apache.storm.Config;
-import org.apache.storm.LocalCluster;
-import org.apache.storm.LocalDRPC;
-import org.apache.storm.kafka.BrokerHosts;
-import org.apache.storm.kafka.ZkHosts;
-import org.apache.storm.kafka.trident.TransactionalTridentKafkaSpout;
+import backtype.storm.Config;
+import backtype.storm.LocalCluster;
+import backtype.storm.LocalDRPC;
+import storm.kafka.BrokerHosts;
+import storm.kafka.ZkHosts;
+import storm.kafka.trident.TransactionalTridentKafkaSpout;
 
 public class RetailAnalysis {
 
@@ -28,11 +28,11 @@ public class RetailAnalysis {
         TransactionalTridentKafkaSpout kafkaSpout = SpoutBuilder.buildKafkaSpout(hosts, INPUT_TOPIC, CLIENT_ID);
 
         LocalCluster cluster = new LocalCluster();
-        cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout));
+        cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout, localDRPC));
 
         for (int i = 0; i < 100; i++) {
             System.out.println("Sum: " + localDRPC.execute(TOP_SOLD, "good happy"));
-            System.out.println("Sum: " + localDRPC.execute(TOP_CANCELED, "good happy"));
+//            System.out.println("Sum: " + localDRPC.execute(TOP_CANCELED, "good happy"));
             Thread.sleep(1000);
         }
 
