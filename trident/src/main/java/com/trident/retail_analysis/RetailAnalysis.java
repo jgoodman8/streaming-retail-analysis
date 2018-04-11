@@ -13,7 +13,7 @@ public class RetailAnalysis {
     private static final String TOPOLOGY_NAME = "trident-retail-analysis";
 
     private static final String CLIENT_ID = "storm";
-    private static final String INPUT_TOPIC = "compras-trident";
+    private static final String KAFKA_TOPIC = "compras-trident";
 
     public static final String TOP_SOLD = "top_sold_purchases";
     public static final String TOP_CANCELED = "top_canceled_purchases";
@@ -25,13 +25,13 @@ public class RetailAnalysis {
         configuration.setMaxSpoutPending(20);
 
         BrokerHosts hosts = new ZkHosts(BROKER_ZOOKEEPER);
-        TransactionalTridentKafkaSpout kafkaSpout = SpoutBuilder.buildKafkaSpout(hosts, INPUT_TOPIC, CLIENT_ID);
+        TransactionalTridentKafkaSpout kafkaSpout = SpoutBuilder.buildKafkaSpout(hosts, KAFKA_TOPIC, CLIENT_ID);
 
         LocalCluster cluster = new LocalCluster();
         cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout, localDRPC));
 
         for (int i = 0; i < 100; i++) {
-            System.out.println("Sum: " + localDRPC.execute(TOP_SOLD, "good happy"));
+            System.out.println("Sum: " + localDRPC.execute(TOP_SOLD, "France"));
 //            System.out.println("Sum: " + localDRPC.execute(TOP_CANCELED, "good happy"));
             Thread.sleep(1000);
         }

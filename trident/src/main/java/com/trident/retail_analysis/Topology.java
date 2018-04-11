@@ -36,22 +36,23 @@ public class Topology {
                 .each(new Fields(QUANTITY, UNIT_PRICE), new TotalPrice(), new Fields(TOTAL_PRICE))
                 .groupBy(new Fields(COUNTRY))
                 .persistentAggregate(new MemoryMapState.Factory(), new Sum(), new Fields(TOTAL_VOLUME));
+        // totalVolume ==> Tuples (COUNTRY, TOTAL_VOLUME)
 
         topology.newDRPCStream(RetailAnalysis.TOP_SOLD, localDRPC)
-                .stateQuery(totalVolume, new TupleCollectionGet(), new Fields(COUNTRY))
-                .stateQuery(totalVolume, new MapGet(), new Fields(TOTAL_VOLUME))
+                .stateQuery(totalVolume, new TupleCollectionGet(), new Fields(COUNTRY, TOTAL_VOLUME))
+//                .stateQuery(totalVolume, new MapGet(), new Fields(TOTAL_VOLUME))
                 .groupBy(new Fields(COUNTRY))
                 .aggregate(new Fields(COUNTRY, TOTAL_VOLUME),
                         new FirstN.FirstNSortedAgg(N, TOTAL_VOLUME, true),
-                        new Fields(COUNTRY, TOTAL_VOLUME));
+                        new Fields(TOTAL_VOLUME));
 
         topology.newDRPCStream(RetailAnalysis.TOP_CANCELED, localDRPC)
-                .stateQuery(totalVolume, new TupleCollectionGet(), new Fields(COUNTRY))
-                .stateQuery(totalVolume, new Fields(COUNTRY), new MapGet(), new Fields(TOTAL_VOLUME))
+                .stateQuery(totalVolume, new TupleCollectionGet(), new Fields(COUNTRY, TOTAL_VOLUME))
+//                .stateQuery(totalVolume, new Fields(COUNTRY), new MapGet(), new Fields(TOTAL_VOLUME))
                 .groupBy(new Fields(COUNTRY))
                 .aggregate(new Fields(COUNTRY, TOTAL_VOLUME),
                         new FirstN.FirstNSortedAgg(N, TOTAL_VOLUME, false),
-                        new Fields(COUNTRY, TOTAL_VOLUME));
+                        new Fields(TOTAL_VOLUME));
 
         return topology.build();
     }
