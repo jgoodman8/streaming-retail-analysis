@@ -1,3 +1,10 @@
 .idea/
-trident/target
-trident/trident.iml
+kafka_trident/.gradle
+kafka_trident/gradle
+kafka_trident/target
+kafka_trident/trident.iml
+kafka_trident/**.jar
+kafka_trident/out
+kafka_trident/build
+resources
+kafka_trident/**.jar
