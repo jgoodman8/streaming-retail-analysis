@@ -37,9 +37,10 @@ public class Topology {
                 .each(new Fields("str"), new SplitCSV(), new Fields(CSV_FIELDS))
                 .project(new Fields(REQUIRED_FIELDS))
                 .each(new Fields(QUANTITY, UNIT_PRICE), new TotalPrice(), new Fields(TOTAL_PRICE))
+                .each(new Fields(TOTAL_PRICE), new VolumeSplitter(), new Fields("sales", "cancellations"))
                 .groupBy(new Fields(CUSTOMER))
-                .aggregate(new Fields(TOTAL_PRICE), new VolumeAggregator(), new Fields(TOTAL_SALES, TOTAL_CANCELLATIONS))
-                .persistentAggregate(new MemoryMapState.Factory(), new Count(), new Fields("count"))
+                .persistentAggregate(new MemoryMapState.Factory(), new Fields("sales", "cancellations"),
+                        new VolumeReducer(), new Fields(TOTAL_SALES, TOTAL_CANCELLATIONS))
                 .parallelismHint(16);
 
         topology.newDRPCStream(RetailAnalysis.TOP_SOLD, localDRPC)

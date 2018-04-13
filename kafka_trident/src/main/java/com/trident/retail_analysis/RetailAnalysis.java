@@ -20,7 +20,7 @@ public class RetailAnalysis {
 
         LocalDRPC localDRPC = new LocalDRPC();
         Config configuration = new Config();
-//        configuration.setMaxSpoutPending(20);
+        configuration.setMaxSpoutPending(20);
 
         BrokerHosts hosts = new ZkHosts(BROKER_ZOOKEEPER);
         TransactionalTridentKafkaSpout kafkaSpout = SpoutBuilder.buildKafkaSpout(hosts, KAFKA_TOPIC);
