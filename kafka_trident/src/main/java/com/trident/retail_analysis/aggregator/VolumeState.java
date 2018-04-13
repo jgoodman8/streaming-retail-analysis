@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.aggregator;
 
 public class VolumeState {
     private float sales;

@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.query;
 
 //import storm.trident.TridentState;
 //import storm.trident.operation.TridentCollector;

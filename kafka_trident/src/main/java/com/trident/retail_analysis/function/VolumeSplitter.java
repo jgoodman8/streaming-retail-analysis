@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.function;
 
 import backtype.storm.tuple.Values;
 import storm.trident.operation.BaseFunction;
@@ -17,7 +17,7 @@ public class VolumeSplitter extends BaseFunction {
         if (transactionPrice > 0) {
             sales = transactionPrice;
         } else {
-            cancellations = transactionPrice;
+            cancellations = transactionPrice * -1;
         }
 
         collector.emit(new Values(sales, cancellations));

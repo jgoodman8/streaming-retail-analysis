@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.utils;
 
 import backtype.storm.spout.SchemeAsMultiScheme;
 import storm.kafka.BrokerHosts;

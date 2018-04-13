@@ -3,6 +3,7 @@ package com.trident.retail_analysis;
 import backtype.storm.Config;
 import backtype.storm.LocalCluster;
 import backtype.storm.LocalDRPC;
+import com.trident.retail_analysis.utils.SpoutBuilder;
 import storm.kafka.BrokerHosts;
 import storm.kafka.ZkHosts;
 import storm.kafka.trident.TransactionalTridentKafkaSpout;
@@ -28,9 +29,11 @@ public class RetailAnalysis {
         LocalCluster cluster = new LocalCluster();
         cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout, localDRPC));
 
+        String selectedCountries = "France Portugal"; // TODO: By args
+
         for (int i = 0; i < 100; i++) {
-            System.out.println("Top 5: " + localDRPC.execute(TOP_SOLD, "France UK"));
-//            System.out.println("Sum: " + localDRPC.execute(TOP_CANCELED, "good happy"));
+            System.out.println("Top Sales: " + localDRPC.execute(TOP_SOLD, selectedCountries));
+            System.out.println("Top Cancellations: " + localDRPC.execute(TOP_CANCELED, selectedCountries));
             Thread.sleep(1000);
         }
 

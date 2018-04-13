@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.aggregator;
 
 import storm.trident.operation.ReducerAggregator;
 import storm.trident.tuple.TridentTuple;

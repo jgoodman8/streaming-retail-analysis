@@ -1,4 +1,4 @@
-package com.trident.retail_analysis;
+package com.trident.retail_analysis.function;
 
 import backtype.storm.tuple.Values;
 import storm.trident.operation.BaseFunction;
