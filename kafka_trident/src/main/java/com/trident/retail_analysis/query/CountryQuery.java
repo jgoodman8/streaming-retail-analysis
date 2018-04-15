@@ -15,10 +15,6 @@ public class CountryQuery extends BaseQueryFunction<State, Iterator<List<Object>
     public List<Iterator<List<Object>>> batchRetrieve(State state, List<TridentTuple> args) {
         List<Iterator<List<Object>>> retrieve = new ArrayList(args.size());
 
-        if(args.size() > 1) {
-            System.out.printf("asdasdasd");
-        }
-
         for (int i = 0; i < args.size(); i++) {
             String selectedCountry = (String) args.get(i).get(0);
 

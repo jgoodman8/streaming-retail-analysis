@@ -76,5 +76,9 @@ configurations.all {
 
 jar {
     actions = []
+    manifest {
+        attributes "Main-Class": "com.trident.retail_analysis.RetailAnalysis"
+        attributes "Class-Path": configurations.compile.collect { it.absolutePath }.join(" ")
+    }
 }
 jar.dependsOn(shadowJar)
