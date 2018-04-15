@@ -14,6 +14,7 @@ public class RetailAnalysis {
     private static final String BROKER_ZOOKEEPER = "namenode:2181";
     private static final String TOPOLOGY_NAME = "trident-retail-analysis";
 
+    public static final String SEPARATOR = ",";
     public static final String TOP_SOLD = "top_sold_purchases";
     public static final String TOP_CANCELED = "top_canceled_purchases";
 
@@ -29,11 +30,13 @@ public class RetailAnalysis {
         LocalCluster cluster = new LocalCluster();
         cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout, localDRPC));
 
-        String selectedCountries = "France Portugal"; // TODO: By args
+        String selectedCountries = args[0];
+        int maxIterations = Integer.parseInt(args[1]);
 
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < maxIterations; i++) {
             System.out.println("Top Sales: " + localDRPC.execute(TOP_SOLD, selectedCountries));
             System.out.println("Top Cancellations: " + localDRPC.execute(TOP_CANCELED, selectedCountries));
+
             Thread.sleep(1000);
         }
 
