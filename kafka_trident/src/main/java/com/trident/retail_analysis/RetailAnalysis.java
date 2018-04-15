@@ -30,14 +30,18 @@ public class RetailAnalysis {
         LocalCluster cluster = new LocalCluster();
         cluster.submitTopology(TOPOLOGY_NAME, configuration, Topology.buildTopology(kafkaSpout, localDRPC));
 
-        String selectedCountries = args[0];
-        int maxIterations = Integer.parseInt(args[1]);
+        if (args.length == 2) {
+            String selectedCountries = args[0];
+            int maxIterations = Integer.parseInt(args[1]);
 
-        for (int i = 0; i < maxIterations; i++) {
-            System.out.println("Top Sales: " + localDRPC.execute(TOP_SOLD, selectedCountries));
-            System.out.println("Top Cancellations: " + localDRPC.execute(TOP_CANCELED, selectedCountries));
+            for (int i = 0; i < maxIterations; i++) {
+                System.out.println("Top Sales: " + localDRPC.execute(TOP_SOLD, selectedCountries));
+                System.out.println("Top Cancellations: " + localDRPC.execute(TOP_CANCELED, selectedCountries));
 
-            Thread.sleep(1000);
+                Thread.sleep(1000);
+            }
+        } else {
+            System.err.println("Required arguments: \"country1,country2\" <num_iteractions>");
         }
 
         localDRPC.shutdown();
