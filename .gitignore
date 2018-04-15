@@ -7,4 +7,8 @@ kafka_trident/**.jar
 kafka_trident/out
 kafka_trident/build
 resources
-kafka_trident/**.jar
+kafka_trident/purchases_trident_kafka.jar
+spark_streaming/target
+spark_streaming/.idea
+spark_streaming/project/target
+spark_streaming/project/project/target
