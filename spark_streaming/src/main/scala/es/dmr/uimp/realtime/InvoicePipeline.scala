@@ -11,7 +11,7 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import java.util.HashMap
 
 import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
-import es.dmr.uimp.clustering.KMeansClusterInvoices
+import es.dmr.uimp.clustering.TrainInvoices
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.rdd.RDD

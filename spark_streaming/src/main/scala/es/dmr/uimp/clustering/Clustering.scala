@@ -10,6 +10,7 @@ import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.sql.functions._
 
 import scala.collection.mutable.ArrayBuffer
+import scala.util.control.Breaks
 
 /**
   * Created by root on 3/12/17.
@@ -43,7 +44,7 @@ object Clustering {
     df
   }
 
-  def featurizeData(df: DataFrame): DataFrame = {
+  def createFeaturesFromData(df: DataFrame): DataFrame = {
 
     val dfGroupedByInvoice = df.groupBy("InvoiceNo").agg(
       mean("UnitPrice").alias("AvgUnitPrice"),
@@ -57,6 +58,7 @@ object Clustering {
   }
 
   def filterData(df: DataFrame): DataFrame = {
+
     val filteredDF = df.filter(row => {
       !row.getAs[String]("InvoiceNo").isEmpty &&
         !row.getAs[String]("StockCode").isEmpty &&
@@ -73,7 +75,7 @@ object Clustering {
     filteredDF
   }
 
-  def toDataset(df: DataFrame): RDD[Vector] = {
+  def convertToDataSet(df: DataFrame): RDD[Vector] = {
     val data = df.select("AvgUnitPrice", "MinUnitPrice", "MaxUnitPrice", "Time", "NumberItems").rdd
       .map(row => {
         val buffer = ArrayBuffer[Double]()
@@ -90,8 +92,17 @@ object Clustering {
   }
 
   def elbowSelection(costs: Seq[Double], ratio: Double): Int = {
-    // TODO: Select the best model
-    0
+    var k = 0
+
+    for (index <- 1 until costs.length) {
+      val ratio = costs(index) / costs(index - 1)
+
+      if (ratio > 0.7 && k == 0) {
+        k = index + 1
+      }
+    }
+
+    k
   }
 
   def saveThreshold(threshold: Double, fileName: String) = {
