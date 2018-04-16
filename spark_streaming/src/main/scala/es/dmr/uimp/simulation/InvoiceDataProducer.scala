@@ -29,8 +29,6 @@ object InvoiceDataProducer extends App {
     // Get invoice id
     val invoiceNo = line.split(",")(0)
 
-//    System.out.println("InvoiceNo: " + invoiceNo)
-
     val data = new ProducerRecord[String, String](topic, invoiceNo, line)
     producer.send(data)
 

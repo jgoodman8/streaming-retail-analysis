@@ -12,26 +12,26 @@ object KMeansClusterInvoices {
 
     import Clustering._
 
-    val sparkConf = new SparkConf().setAppName("ClusterInvoices")
+    val sparkConf = new SparkConf().setAppName("ClusterInvoices").setMaster("local")
     val sc = new SparkContext(sparkConf)
 
     // load data
     val df = loadData(sc, args(0))
 
-   // Very simple feature extraction from an invoice
-    val featurized = featurizeData(df)
-
     // Filter not valid entries
-    val filtered = filterData(featurized)
+    val filtered = filterData(df)
+
+   // Very simple feature extraction from an invoice
+    val featurized = featurizeData(filtered)
 
     // Transform in a dataset for MLlib
-    val dataset = toDataset(filtered)
+    val dataset = toDataset(featurized)
 
     // We are going to use this a lot (cache it)
-    dataset.cache()
+//    dataset.cache()
 
     // Print a sampl
-    dataset.take(5).foreach(println)
+    dataset.take(30).foreach(println)
 
     val model = trainModel(dataset)
     // Save model

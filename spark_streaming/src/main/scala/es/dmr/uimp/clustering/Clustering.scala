@@ -18,11 +18,11 @@ object Clustering {
   /**
     * Load data from file, parse the data and normalize the data.
     */
-  def loadData(sc: SparkContext, file : String) : DataFrame = {
+  def loadData(sc: SparkContext, file: String): DataFrame = {
     val sqlContext = new SQLContext(sc)
 
     // Function to extract the hour from the date string
-    val gethour =  udf[Double, String]((date : String) => {
+    val gethour = udf[Double, String]((date: String) => {
       var out = -1.0
       if (!StringUtils.isEmpty(date)) {
         val hour = date.substring(10).split(":")(0)
@@ -43,19 +43,39 @@ object Clustering {
     df
   }
 
-  def featurizeData(df : DataFrame) : DataFrame = {
-   // TODO : Featurize the data
-    df
+  def featurizeData(df: DataFrame): DataFrame = {
+
+    val dfGroupedByInvoice = df.groupBy("InvoiceNo").agg(
+      mean("UnitPrice").alias("AvgUnitPrice"),
+      min("UnitPrice").alias("MinUnitPrice"),
+      max("UnitPrice").alias("MaxUnitPrice"),
+      first("Hour").alias("Time"),
+      sum("Quantity").alias("NumberItems")
+    )
+
+    dfGroupedByInvoice
   }
 
-  def filterData(df : DataFrame) : DataFrame = {
-   // TODO: Filter cancelations and invalid
-    df
+  def filterData(df: DataFrame): DataFrame = {
+    val filteredDF = df.filter(row => {
+      !row.getAs[String]("InvoiceNo").isEmpty &&
+        !row.getAs[String]("StockCode").isEmpty &&
+        !row.getAs[String]("InvoiceDate").isEmpty &&
+        !row.getAs[Double]("UnitPrice").isNaN &&
+        !row.getAs[Int]("Quantity").isNaN &&
+        !row.getAs[Int]("CustomerID").isNaN &&
+        !row.getAs[String]("Country").isEmpty &&
+        !row.getAs[Double]("Hour").isNaN &&
+        row.getAs[Int]("Quantity").>(1) &&
+        row.getAs[Double]("UnitPrice").>(0.0f)
+    })
+
+    filteredDF
   }
 
   def toDataset(df: DataFrame): RDD[Vector] = {
     val data = df.select("AvgUnitPrice", "MinUnitPrice", "MaxUnitPrice", "Time", "NumberItems").rdd
-      .map(row =>{
+      .map(row => {
         val buffer = ArrayBuffer[Double]()
         buffer.append(row.getAs("AvgUnitPrice"))
         buffer.append(row.getAs("MinUnitPrice"))
@@ -69,12 +89,12 @@ object Clustering {
     data
   }
 
-  def elbowSelection(costs: Seq[Double], ratio : Double): Int = {
+  def elbowSelection(costs: Seq[Double], ratio: Double): Int = {
     // TODO: Select the best model
     0
   }
 
-  def saveThreshold(threshold : Double, fileName : String) = {
+  def saveThreshold(threshold: Double, fileName: String) = {
     val file = new File(fileName)
     val bw = new BufferedWriter(new FileWriter(file))
     // decide threshold for anomalies
