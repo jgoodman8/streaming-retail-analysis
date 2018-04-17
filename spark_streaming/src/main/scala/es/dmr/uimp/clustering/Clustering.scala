@@ -10,7 +10,6 @@ import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.sql.functions._
 
 import scala.collection.mutable.ArrayBuffer
-import scala.util.control.Breaks
 
 /**
   * Created by root on 3/12/17.

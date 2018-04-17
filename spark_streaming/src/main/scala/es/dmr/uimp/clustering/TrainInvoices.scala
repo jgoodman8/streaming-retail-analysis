@@ -9,8 +9,9 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object TrainInvoices {
 
-  val defaultUrl = "local"
-  val baseAppName = "ClusterInvoices_"
+  val K_MEANS_MODEL = "kMeans"
+  val BISECTION_K_MEANS_MODEL = "BisKMeans"
+  val BASE_APP_NAME = "ClusterInvoices_"
 
   def main(args: Array[String]) {
 
@@ -22,15 +23,11 @@ object TrainInvoices {
       System.exit(1)
     }
 
-    val trainDataRoute = args(0)
-    val modelStorageRoute = args(1)
-    val thresholdsStorageRoute = args(2)
-    val modelType = args(3)
-    val masterUrl = if (args.length == 5) args(4) else defaultUrl
+    val Array(trainDataRoute, modelStorageRoute, thresholdsStorageRoute, modelType) = args
+    val appName = BASE_APP_NAME + modelType
 
-    val appName = baseAppName + modelType
-
-    val sparkConfiguration = new SparkConf().setAppName(appName).setMaster(masterUrl)
+    val sparkConfiguration = new SparkConf().setAppName(appName)
+    //.setMaster(masterUrl)
     val sparkContext = new SparkContext(sparkConfiguration)
 
     val inputData = loadData(sparkContext, trainDataRoute)
@@ -40,16 +37,19 @@ object TrainInvoices {
     dataSet.take(30).foreach(println)
 
     // Train and get distances between centroids
-    val distances: RDD[Double] = if (modelType.eq("kMeans")) {
-      val model = trainKMeansModel(dataSet)
+    val distances: RDD[Double] = if (modelType.eq(K_MEANS_MODEL)) {
+      val model: KMeansModel = trainKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
       dataSet.map(d => distToCentroidFromKMeans(d, model))
-    } else {
-      val model = trainBisectingKMeansModel(dataSet)
+    } else if (modelType.eq(BISECTION_K_MEANS_MODEL)) {
+      val model: BisectingKMeansModel = trainBisectingKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
       dataSet.map(d => distToCentroidFromBisectingKMeans(d, model))
+    } else {
+      System.err.println("Invalid model name. Required types: kMeans, BisKMeans")
+      return System.exit(1)
     }
 
     val threshold = distances.top(2000).last // set the last of the furthest 2000 data points as the threshold
