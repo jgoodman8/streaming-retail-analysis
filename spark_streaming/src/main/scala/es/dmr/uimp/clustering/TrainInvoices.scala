@@ -27,26 +27,25 @@ object TrainInvoices {
     val appName = BASE_APP_NAME + modelType
 
     val sparkConfiguration = new SparkConf().setAppName(appName)
-    //.setMaster(masterUrl)
     val sparkContext = new SparkContext(sparkConfiguration)
 
     val inputData = loadData(sparkContext, trainDataRoute)
-
     val dataSet = buildDataSet(inputData)
+
     dataSet.cache()
     dataSet.take(30).foreach(println)
 
     // Train and get distances between centroids
-    val distances: RDD[Double] = if (modelType.eq(K_MEANS_MODEL)) {
+    val distances: RDD[Double] = if (modelType == K_MEANS_MODEL) {
       val model: KMeansModel = trainKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
-      dataSet.map(d => distToCentroidFromKMeans(d, model))
-    } else if (modelType.eq(BISECTION_K_MEANS_MODEL)) {
+      dataSet.map(instance => distToCentroidFromKMeans(instance, model))
+    } else if (modelType == BISECTION_K_MEANS_MODEL) {
       val model: BisectingKMeansModel = trainBisectingKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
-      dataSet.map(d => distToCentroidFromBisectingKMeans(d, model))
+      dataSet.map(instance => distToCentroidFromBisectingKMeans(instance, model))
     } else {
       System.err.println("Invalid model name. Required types: kMeans, BisKMeans")
       return System.exit(1)
@@ -101,8 +100,8 @@ object TrainInvoices {
   /**
     * Calculates distance between data point to centroid for a given KMeansModel
     *
-    * @param datum
-    * @param model
+    * @param datum A single instance from the data set
+    * @param model k-means model
     * @return
     */
   def distToCentroidFromKMeans(datum: Vector, model: KMeansModel): Double = {
@@ -113,13 +112,13 @@ object TrainInvoices {
   /**
     * Calculates distance between data point to centroid for a given BisectingKMeansModel
     *
-    * @param datum
-    * @param model
+    * @param instance A single instance from the data set
+    * @param model    bisection k-means model
     * @return
     */
-  def distToCentroidFromBisectingKMeans(datum: Vector, model: BisectingKMeansModel): Double = {
-    val centroid = model.clusterCenters(model.predict(datum)) // if more than 1 center
-    Vectors.sqdist(datum, centroid)
+  def distToCentroidFromBisectingKMeans(instance: Vector, model: BisectingKMeansModel): Double = {
+    val centroid = model.clusterCenters(model.predict(instance)) // if more than 1 center
+    Vectors.sqdist(instance, centroid)
   }
 
   /**
