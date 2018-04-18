@@ -1,11 +1,12 @@
 package es.dmr.uimp.clustering
 
-import es.dmr.uimp.clustering.Clustering.elbowSelection
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.{SparkConf, SparkContext}
+
+import es.dmr.uimp.clustering.Clustering._
 
 object TrainInvoices {
 
@@ -14,8 +15,6 @@ object TrainInvoices {
   val BASE_APP_NAME = "ClusterInvoices_"
 
   def main(args: Array[String]) {
-
-    import Clustering._
 
     if (args.length < 4) {
       System.err.println("Required parameters: <csv-source-file> <model-storage-route> <threshold-storage-route> " +
@@ -128,7 +127,6 @@ object TrainInvoices {
     * @return
     */
   def buildDataSet(inputData: DataFrame): RDD[Vector] = {
-    import Clustering._
 
     val filteredData = filterData(inputData)
 

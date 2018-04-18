@@ -11,7 +11,7 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import java.util.HashMap
 
 import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
-import es.dmr.uimp.clustering.TrainInvoices
+import es.dmr.uimp.clustering.TrainInvoices.{distToCentroidFromKMeans, distToCentroidFromBisectingKMeans}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.rdd.RDD
@@ -42,13 +42,16 @@ object InvoicePipeline {
     streamingContext.checkpoint(CHECKPOINT_PATH)
 
     // TODO: Load model and broadcast
-    val kMeansData = loadKMeansAndThreshold(sparkContext, modelFile, thresholdFile)
-    val kMeansModel = streamingContext.sparkContext.broadcast(kMeansData._1)
-    val kmeansThreshold = streamingContext.sparkContext.broadcast(kMeansData._2)
+    //    val kMeansData = loadKMeansAndThreshold(sparkContext, modelFile, thresholdFile)
+    //    val kMeansModel: Broadcast[KMeansModel] = streamingContext.sparkContext.broadcast(kMeansData._1)
+    //    val kmeansThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(kMeansData._2)
 
     val bisectionKMeansData = loadBisectingKMeansAndThreshold(sparkContext, modelFileBisect, thresholdFileBisect)
-    val bisectionKMeans = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
-    val bisectionThreshold = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
+    val bisectionKMeans: Broadcast[BisectingKMeansModel] = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
+    val bisectionThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
+
+    // ¿?¿??¿?
+    val bradcastedBrokers: Broadcast[String] = streamingContext.sparkContext.broadcast(brokers)
 
     // TODO: Build pipeline
 
@@ -56,22 +59,44 @@ object InvoicePipeline {
     // connect to kafka
     val purchasesFeed: DStream[(String, String)] = connectToPurchases(streamingContext, zookeeperCluster, group, topics, numThreads)
 
-    // TODO: rest of pipeline
-    val purchases: DStream[Purchase] = parsePurchases(purchasesFeed)
-    purchases.filter { item =>
-      !item.invoiceNo.isEmpty &&
-        !item.quantity.isNaN &&
-        !item.invoiceDate.isEmpty &&
-        !item.unitPrice.isNaN &&
-        !item.customerID.isEmpty &&
-        !item.country.isEmpty
-    }
+    purchasesFeed
+      .window(Seconds(40), Seconds(20))
+      .map({ purchase =>
+        val parsedPurchase = parsePurchase(purchase)
+        val as_class = parsedPurchase.asInstanceOf[Purchase]
 
-    //    .foreachRDD { purchase =>
-    //      val parsedPurchases = purchase.
-    //
-    //      val wrongInvoices = purchase.filter()
+        as_class
+      })
+//      .foreachRDD({ item =>
+//        val p = item.asInstanceOf[Purchase]
+//
+//        (p.invoiceNo, p)
+//      })
+      .filter({ item: Purchase =>
+        !item.invoiceNo.isEmpty &&
+          !item.quantity.isNaN &&
+          !item.invoiceDate.isEmpty &&
+          !item.unitPrice.isNaN &&
+          !item.customerID.isEmpty &&
+          !item.country.isEmpty
+      })
+//      .reduceByKey { (key: String, value: Purchase) =>
+//
+//      }
+
+
+    // TODO: rest of pipeline
+    //    val purchases: DStream[Purchase] = parsePurchases(purchasesFeed)
+    //    val filterdPurchases = purchases.filter { item =>
+    //      !item.invoiceNo.isEmpty &&
+    //        !item.quantity.isNaN &&
+    //        !item.invoiceDate.isEmpty &&
+    //        !item.unitPrice.isNaN &&
+    //        !item.customerID.isEmpty &&
+    //        !item.country.isEmpty
     //    }
+
+    //    purchases.reduceByWindow(
 
     streamingContext.start() // Start the computation
     streamingContext.awaitTermination()
@@ -145,6 +170,7 @@ object InvoicePipeline {
     val threshold = rawData.map { line => line.toDouble }.first()
 
     threshold
+
   }
 
   def connectToPurchases(streamingContext: StreamingContext, zookeeperQuorum: String, groupId: String, topics: String,
@@ -158,15 +184,32 @@ object InvoicePipeline {
     KafkaUtils.createStream(streamingContext, zookeeperQuorum, groupId, topicMap)
   }
 
-  def parsePurchases(feed: DStream[(String, String)]): DStream[Purchase] = {
+  /**
+    * Given a purchases feed formatted as csv-like strings, returns those purchases parsed as objects by using a
+    * csv parser
+    *
+    * @param purchase Feed from Kafka with purchases as csv-like strings
+    * @return
+    */
+  def parsePurchase(purchase: (String, String)) = {
     val csvParserSettings = new CsvParserSettings()
     csvParserSettings.detectFormatAutomatically()
     val csvParser = new CsvParser(csvParserSettings)
 
-    val purchases: DStream[Purchase] = feed.map { item =>
-      csvParser.parseRecord(item._2).asInstanceOf[Purchase]
-    }
+    val parsed = csvParser.parseRecord(purchase._2)
 
-    purchases
+    parsed
   }
+
+  def detectAnomaliesWithKMeans(invoicesFeed: Invoice, model: Broadcast[KMeansModel], threshold: Broadcast[Float]) = {
+    //    val anomalies = invoicesFeed.foreachRDD { invoice =>
+    //      invoice.
+    //      val invoiceProperties = Vector(invoice.invoiceNo, invoice.avgUnitPrice, invoice.minUnitPrice,
+    //        invoice.maxUnitPrice, invoice.time, invoice.numberItems)
+    //      invoice.
+    //      val distance: Double = distToCentroidFromKMeans(invoice, model.value)
+    //      distance.>(threshold.value)
+  }
+}
+
 }
