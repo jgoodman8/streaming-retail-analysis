@@ -11,10 +11,11 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import java.util.HashMap
 
 import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
-import es.dmr.uimp.clustering.TrainInvoices.{distToCentroidFromKMeans, distToCentroidFromBisectingKMeans}
+import es.dmr.uimp.clustering.TrainInvoices.{distToCentroidFromBisectingKMeans, distToCentroidFromKMeans}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.rdd.RDD
+import org.apache.spark.util.LongAccumulator
 
 
 object InvoicePipeline {
@@ -34,11 +35,9 @@ object InvoicePipeline {
     val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics,
     numThreads, brokers) = args
 
-    val sparkConf = new SparkConf().setAppName("InvoicePipeline").setMaster("local") // TODO: Remove setMaster
+    val sparkConf = new SparkConf().setAppName("InvoicePipeline")
     val sparkContext = new SparkContext(sparkConf)
-    val streamingContext = new StreamingContext(sparkContext, Seconds(20))
-
-    // Check-pointing
+    val streamingContext = new StreamingContext(sparkContext, Seconds(1))
     streamingContext.checkpoint(CHECKPOINT_PATH)
 
     // TODO: Load model and broadcast
@@ -46,60 +45,33 @@ object InvoicePipeline {
     //    val kMeansModel: Broadcast[KMeansModel] = streamingContext.sparkContext.broadcast(kMeansData._1)
     //    val kmeansThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(kMeansData._2)
 
-    val bisectionKMeansData = loadBisectingKMeansAndThreshold(sparkContext, modelFileBisect, thresholdFileBisect)
-    val bisectionKMeans: Broadcast[BisectingKMeansModel] = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
-    val bisectionThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
+    //    val bisectionKMeansData = loadBisectingKMeansAndThreshold(sparkContext, modelFileBisect, thresholdFileBisect)
+    //    val bisectionKMeans: Broadcast[BisectingKMeansModel] = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
+    //    val bisectionThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
 
-    // ¿?¿??¿?
-    val bradcastedBrokers: Broadcast[String] = streamingContext.sparkContext.broadcast(brokers)
+    val broadcastBrokers: Broadcast[String] = streamingContext.sparkContext.broadcast(brokers)
 
     // TODO: Build pipeline
 
+    val kafkaFeed: DStream[(String, String)] = connectToKafka(streamingContext, zookeeperCluster, group, topics, numThreads)
 
-    // connect to kafka
-    val purchasesFeed: DStream[(String, String)] = connectToPurchases(streamingContext, zookeeperCluster, group, topics, numThreads)
-
-    purchasesFeed
-      .window(Seconds(40), Seconds(20))
-      .map({ purchase =>
-        val parsedPurchase = parsePurchase(purchase)
-        val as_class = parsedPurchase.asInstanceOf[Purchase]
-
-        as_class
+    //    val res = purchasesFeed.map(item => (item._1, 1)).reduceByKeyAndWindow(_ + _, _ - _, Minutes(4), Seconds(2), 2).map(x => (x._1, x._2.toString))
+    kafkaFeed
+      .window(Seconds(5))
+      .updateStateByKey(updateFunction)
+      .map({ item =>
+        (item._1, item._1)
       })
-//      .foreachRDD({ item =>
-//        val p = item.asInstanceOf[Purchase]
-//
-//        (p.invoiceNo, p)
-//      })
-      .filter({ item: Purchase =>
-        !item.invoiceNo.isEmpty &&
-          !item.quantity.isNaN &&
-          !item.invoiceDate.isEmpty &&
-          !item.unitPrice.isNaN &&
-          !item.customerID.isEmpty &&
-          !item.country.isEmpty
+      .foreachRDD({ rdd =>
+        publishToKafka("ts")(broadcastBrokers)(rdd)
       })
-//      .reduceByKey { (key: String, value: Purchase) =>
-//
-//      }
 
-
-    // TODO: rest of pipeline
-    //    val purchases: DStream[Purchase] = parsePurchases(purchasesFeed)
-    //    val filterdPurchases = purchases.filter { item =>
-    //      !item.invoiceNo.isEmpty &&
-    //        !item.quantity.isNaN &&
-    //        !item.invoiceDate.isEmpty &&
-    //        !item.unitPrice.isNaN &&
-    //        !item.customerID.isEmpty &&
-    //        !item.country.isEmpty
-    //    }
-
-    //    purchases.reduceByWindow(
-
-    streamingContext.start() // Start the computation
+    streamingContext.start()
     streamingContext.awaitTermination()
+  }
+
+  def updateFunction(newValues: Seq[String], runningCount: Option[Invoice]): Option[Invoice] = {
+    Option(Invoice("IDX", 0.1, 0.2, 0.3, 0.4, 0.5, 1, 1, "CUSTOMER"))
   }
 
   def publishToKafka(topic: String)(kafkaBrokers: Broadcast[String])(rdd: RDD[(String, String)]) = {
@@ -167,14 +139,16 @@ object InvoicePipeline {
     */
   def loadThresholdFromFile(sparkContext: SparkContext, thresholdFile: String): Double = {
     val rawData = sparkContext.textFile(thresholdFile, 20)
-    val threshold = rawData.map { line => line.toDouble }.first()
+    val threshold = rawData.map {
+      line => line.toDouble
+    }.first()
 
     threshold
 
   }
 
-  def connectToPurchases(streamingContext: StreamingContext, zookeeperQuorum: String, groupId: String, topics: String,
-                         numThreads: String): DStream[(String, String)] = {
+  def connectToKafka(streamingContext: StreamingContext, zookeeperQuorum: String, groupId: String, topics: String,
+                     numThreads: String): DStream[(String, String)] = {
 
     streamingContext.checkpoint(CHECKPOINT_PATH)
 
@@ -209,7 +183,38 @@ object InvoicePipeline {
     //      invoice.
     //      val distance: Double = distToCentroidFromKMeans(invoice, model.value)
     //      distance.>(threshold.value)
+    //  }
   }
-}
 
+  //  class KafkaSink(createProducer: () => KafkaProducer[String, String]) extends Serializable {
+  //
+  //    lazy val producer = createProducer()
+  //
+  //    def send(topic: String, value: String): Unit = producer.send(new ProducerRecord(topic, value))
+  //  }
+  //
+  //  object KafkaSink {
+  //    def apply(kafkaBrokers: Broadcast[String]): KafkaSink = {
+  //      val f = () => {
+  //        new KafkaProducer[String, String](createKafkaConfiguration(kafkaBrokers.value))
+  //      }
+  //      new KafkaSink(f)
+  //    }
+  //  }
+
+  //  object AccCounter {
+  //
+  //    @volatile private var instance: LongAccumulator = null
+  //
+  //    def getInstance(sc: SparkContext): LongAccumulator = {
+  //      if (instance == null) {
+  //        synchronized {
+  //          if (instance == null) {
+  //            instance = sc.longAccumulator("AccCounter")
+  //          }
+  //        }
+  //      }
+  //      instance
+  //    }
+  //  }
 }
