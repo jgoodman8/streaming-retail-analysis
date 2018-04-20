@@ -1,22 +1,14 @@
 package es.dmr.uimp.realtime
 
-import org.apache.commons.lang3.StringUtils
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
+import com.univocity.parsers.common.record.Record
+import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
+import es.dmr.uimp.realtime.KafkaConsumer._
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.clustering._
+import org.apache.spark.sql.functions._
 import org.apache.spark.streaming._
 import org.apache.spark.streaming.dstream.DStream
-import org.apache.spark.streaming.kafka.KafkaUtils
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
-import java.util.HashMap
-
-import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
-import es.dmr.uimp.clustering.TrainInvoices.{distToCentroidFromBisectingKMeans, distToCentroidFromKMeans}
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.rdd.RDD
-import org.apache.spark.util.LongAccumulator
-
 
 object InvoicePipeline {
 
@@ -32,8 +24,7 @@ object InvoicePipeline {
 
   def main(args: Array[String]) {
 
-    val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics,
-    numThreads, brokers) = args
+    val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics, numThreads, brokers) = args
 
     val sparkConf = new SparkConf().setAppName("InvoicePipeline")
     val sparkContext = new SparkContext(sparkConf)
@@ -55,107 +46,80 @@ object InvoicePipeline {
 
     val kafkaFeed: DStream[(String, String)] = connectToKafka(streamingContext, zookeeperCluster, group, topics, numThreads)
 
+    val purchasesStream = kafkaFeed.transform { inputRDD =>
+      inputRDD.map { input =>
+        val invoiceId = input._1
+        val purchaseAsString = input._2
+
+        val purchase = parsePurchase(purchaseAsString)
+
+        (invoiceId, purchase)
+      }
+    }
+
+    //    purchasesStream
+    //      .window(Seconds(40), Seconds(20))
+    //      .updateStateByKey(filterPurchase)
+
+    // TODO: rest of pipeline
+
+
     //    val res = purchasesFeed.map(item => (item._1, 1)).reduceByKeyAndWindow(_ + _, _ - _, Minutes(4), Seconds(2), 2).map(x => (x._1, x._2.toString))
-    kafkaFeed
-      .window(Seconds(5))
+    purchasesStream
+      .window(Seconds(40))
       .updateStateByKey(updateFunction)
-      .map({ item =>
+      .map { item =>
         (item._1, item._1)
-      })
-      .foreachRDD({ rdd =>
-        publishToKafka("ts")(broadcastBrokers)(rdd)
-      })
+      }
+      .foreachRDD { rdd =>
+        publishToKafka("xd")(broadcastBrokers)(rdd)
+      }
 
     streamingContext.start()
     streamingContext.awaitTermination()
   }
 
-  def updateFunction(newValues: Seq[String], runningCount: Option[Invoice]): Option[Invoice] = {
-    Option(Invoice("IDX", 0.1, 0.2, 0.3, 0.4, 0.5, 1, 1, "CUSTOMER"))
-  }
+  def updateFunction(purchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
 
-  def publishToKafka(topic: String)(kafkaBrokers: Broadcast[String])(rdd: RDD[(String, String)]) = {
-    rdd.foreachPartition(partition => {
-      val kafkaConfiguration = createKafkaConfiguration(kafkaBrokers.value)
-      val producer = new KafkaProducer[String, String](kafkaConfiguration)
+    //    val invoice: Invoice = purchases.to.aggregate { purchase: Purchase => {
 
-      partition.foreach(record => {
-        producer.send(new ProducerRecord[String, String](topic, record._1, record._2.toString))
-      })
+    val previousState: Invoice = state.getOrElse(Invoice("", 0, 0, 0, 0, 0, 0, 0, ""))
+    //    val currentCount = previousState.lines + state.size
+    //    val average = (previousState.avgUnitPrice * previousState.lines + purchases.sum) / currentCount
+    val invoiceNo = ""
+    val average: Double = 0.0f
+    val minimun = 0
+    val maximun = 0
+    val time = 0
+    val numerOfItems = previousState.numberItems + 0 // purchases.aggregate(_ => _.)
+    val lines = previousState.lines + state.size
+    val lastUpdated = 0
+    val country = ""
 
-      producer.close()
-    })
-  }
+    Some(new Invoice(invoiceNo, average, minimun, maximun, time, numerOfItems, lines, lastUpdated, country))
 
-  def createKafkaConfiguration(brokers: String) = {
-    val properties = new HashMap[String, Object]()
+    //      purchase.invoiceNo
+    //      ,
+    //      mean(purchase.unitPrice)
+    //      ,
+    //      min(purchase.unitPrice)
+    //      ,
+    //      max(purchase.unitPrice)
+    //      ,
+    //      min("UnitPrice").alias("MinUnitPrice")
+    //      ,
+    //      max("UnitPrice").alias("MaxUnitPrice")
+    //      ,
+    //      first("Hour").alias("Time")
+    //      ,
+    //      purchase.quantity. sum().alias("NumberItems")
+    //      )
+    //  }
+    //}
 
-    properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokers)
-    properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-    properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
 
-    properties
-  }
-
-  /**
-    * Load the model information: centroid and threshold for kMeans model
-    *
-    * @param sparkContext  Spark context reference
-    * @param modelFile     Route to the folder where the generated kMeans model is stored
-    * @param thresholdFile Route to the folder where the generated kMeans threshold is stored
-    * @return
-    */
-  def loadKMeansAndThreshold(sparkContext: SparkContext, modelFile: String, thresholdFile: String): (KMeansModel, Double) = {
-    val kMeansModel = KMeansModel.load(sparkContext, modelFile)
-
-    val threshold = loadThresholdFromFile(sparkContext, thresholdFile)
-
-    (kMeansModel, threshold)
-  }
-
-  /**
-    * Load the model information: centroid and threshold for bisecting kMeans model
-    *
-    * @param sparkContext  Spark context reference
-    * @param modelFile     Route to the folder where the generated bisecting kMeans model is stored
-    * @param thresholdFile Route to the folder where the generated bisecting kMeans threshold is stored
-    * @return
-    */
-  def loadBisectingKMeansAndThreshold(sparkContext: SparkContext, modelFile: String,
-                                      thresholdFile: String): (BisectingKMeansModel, Double) = {
-    val bisectingKMeansModel = BisectingKMeansModel.load(sparkContext, modelFile)
-
-    val bisectingThreshold = loadThresholdFromFile(sparkContext, thresholdFile)
-
-    (bisectingKMeansModel, bisectingThreshold)
-  }
-
-  /**
-    * Loads a threshold from a given file url
-    *
-    * @param sparkContext  Spark context reference
-    * @param thresholdFile Route to the folder where the threshold is stored
-    * @return
-    */
-  def loadThresholdFromFile(sparkContext: SparkContext, thresholdFile: String): Double = {
-    val rawData = sparkContext.textFile(thresholdFile, 20)
-    val threshold = rawData.map {
-      line => line.toDouble
-    }.first()
-
-    threshold
-
-  }
-
-  def connectToKafka(streamingContext: StreamingContext, zookeeperQuorum: String, groupId: String, topics: String,
-                     numThreads: String): DStream[(String, String)] = {
-
-    streamingContext.checkpoint(CHECKPOINT_PATH)
-
-    // It only returns a single tuple (done due needed input format in createStream function)
-    val topicMap = topics.split(",").map((_, numThreads.toInt)).toMap
-
-    KafkaUtils.createStream(streamingContext, zookeeperQuorum, groupId, topicMap)
+    //Option (invoice)
+    //    Option(Invoice("IDX", 0.1, 0.2, 0.3, 0.4, 0.5, 1, 1, "CUSTOMER"))
   }
 
   /**
@@ -165,15 +129,24 @@ object InvoicePipeline {
     * @param purchase Feed from Kafka with purchases as csv-like strings
     * @return
     */
-  def parsePurchase(purchase: (String, String)) = {
+  def parsePurchase(purchase: String) = {
     val csvParserSettings = new CsvParserSettings()
     csvParserSettings.detectFormatAutomatically()
     val csvParser = new CsvParser(csvParserSettings)
 
-    val parsed = csvParser.parseRecord(purchase._2)
+    val parsedPurchase = csvParser.parseRecord(purchase)
 
-    parsed
+    recordToPurchase(parsedPurchase)
   }
+
+  def recordToPurchase(record: Record) = Purchase(
+    record.getString(0),
+    record.getInt(3),
+    record.getString(4),
+    record.getDouble(5),
+    record.getString(6),
+    record.getString(7)
+  )
 
   def detectAnomaliesWithKMeans(invoicesFeed: Invoice, model: Broadcast[KMeansModel], threshold: Broadcast[Float]) = {
     //    val anomalies = invoicesFeed.foreachRDD { invoice =>
@@ -185,6 +158,10 @@ object InvoicePipeline {
     //      distance.>(threshold.value)
     //  }
   }
+
+  //    def filterPurchase(newValues: Seq[Purchase], runningCount: Option[Purchase]): Option[T] = {
+  //
+  //    }
 
   //  class KafkaSink(createProducer: () => KafkaProducer[String, String]) extends Serializable {
   //
