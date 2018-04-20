@@ -2,16 +2,25 @@ package es.dmr.uimp.realtime
 
 import com.univocity.parsers.common.record.Record
 import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
+import es.dmr.uimp.clustering.TrainInvoices._
 import es.dmr.uimp.realtime.KafkaConsumer._
-import org.apache.spark.{SparkConf, SparkContext}
+import es.dmr.uimp.realtime.Loaders._
+import org.apache.commons.lang3.StringUtils
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.clustering._
-import org.apache.spark.sql.functions._
+import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.streaming._
 import org.apache.spark.streaming.dstream.DStream
+import org.apache.spark.{SparkConf, SparkContext}
+
+import scala.collection.mutable.ArrayBuffer
 
 object InvoicePipeline {
 
+  val CANCELLATIONS_TOPIC = "cancelaciones"
+  val WRONG_INVOICES_TOPIC = "facturas_erroneas"
+  val K_MEANS_ANOMALIES_TOPIC = "anomalias_kmeans"
+  val BISECTION_K_MEANS_ANOMALIES_TOPIC = "anomalias_bisect_kmeans"
   val CHECKPOINT_PATH = "./checkpoint"
 
   case class Purchase(invoiceNo: String, quantity: Int, invoiceDate: String,
@@ -26,19 +35,19 @@ object InvoicePipeline {
 
     val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics, numThreads, brokers) = args
 
-    val sparkConf = new SparkConf().setAppName("InvoicePipeline")
+    val sparkConf = new SparkConf().setAppName("InvoicePipeline").setMaster("local[4]")
     val sparkContext = new SparkContext(sparkConf)
     val streamingContext = new StreamingContext(sparkContext, Seconds(1))
     streamingContext.checkpoint(CHECKPOINT_PATH)
 
     // TODO: Load model and broadcast
-    //    val kMeansData = loadKMeansAndThreshold(sparkContext, modelFile, thresholdFile)
-    //    val kMeansModel: Broadcast[KMeansModel] = streamingContext.sparkContext.broadcast(kMeansData._1)
-    //    val kmeansThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(kMeansData._2)
+    val kMeansData = loadKMeansAndThreshold(sparkContext, modelFile, thresholdFile)
+    val kMeansModel: Broadcast[KMeansModel] = streamingContext.sparkContext.broadcast(kMeansData._1)
+    val kMeansThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(kMeansData._2)
 
-    //    val bisectionKMeansData = loadBisectingKMeansAndThreshold(sparkContext, modelFileBisect, thresholdFileBisect)
-    //    val bisectionKMeans: Broadcast[BisectingKMeansModel] = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
-    //    val bisectionThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
+    val bisectionKMeansData = loadBisectingKMeansAndThreshold(sparkContext, modelFileBisect, thresholdFileBisect)
+    val bisectionKMeans: Broadcast[BisectingKMeansModel] = streamingContext.sparkContext.broadcast(bisectionKMeansData._1)
+    val bisectionThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(bisectionKMeansData._2)
 
     val broadcastBrokers: Broadcast[String] = streamingContext.sparkContext.broadcast(brokers)
 
@@ -46,6 +55,24 @@ object InvoicePipeline {
 
     val kafkaFeed: DStream[(String, String)] = connectToKafka(streamingContext, zookeeperCluster, group, topics, numThreads)
 
+    val purchasesStream = getPurchasesStream(kafkaFeed)
+
+    // TODO: rest of pipeline
+    detectWrongPurchases(purchasesStream, broadcastBrokers)
+    detectCancellations(purchasesStream, broadcastBrokers)
+
+    val invoices = purchasesStream
+      .window(Seconds(40), Seconds(1))
+      .updateStateByKey(updateFunction)
+
+    detectAnomaly(invoices, kMeansModel, kMeansThreshold, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
+    detectAnomaly(invoices, bisectionKMeans, bisectionThreshold, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
+
+    streamingContext.start()
+    streamingContext.awaitTermination()
+  }
+
+  def getPurchasesStream(kafkaFeed: DStream[(String, String)]): DStream[(String, Purchase)] = {
     val purchasesStream = kafkaFeed.transform { inputRDD =>
       inputRDD.map { input =>
         val invoiceId = input._1
@@ -57,69 +84,57 @@ object InvoicePipeline {
       }
     }
 
-    //    purchasesStream
-    //      .window(Seconds(40), Seconds(20))
-    //      .updateStateByKey(filterPurchase)
-
-    // TODO: rest of pipeline
-
-
-    //    val res = purchasesFeed.map(item => (item._1, 1)).reduceByKeyAndWindow(_ + _, _ - _, Minutes(4), Seconds(2), 2).map(x => (x._1, x._2.toString))
     purchasesStream
-      .window(Seconds(40))
-      .updateStateByKey(updateFunction)
-      .map { item =>
-        (item._1, item._1)
+  }
+
+  def detectWrongPurchases(purchasesStream: DStream[(String, Purchase)], broadcastBrokers: Broadcast[String]) = {
+    purchasesStream
+      .filter(tuple => isWrongPurchase(tuple._2))
+      .transform { invoicesTupleRDD => // TODO: Refactor this :9
+        invoicesTupleRDD.map(count => (count.toString, count.toString))
       }
       .foreachRDD { rdd =>
-        publishToKafka("xd")(broadcastBrokers)(rdd)
+        publishToKafka(WRONG_INVOICES_TOPIC, broadcastBrokers, rdd)
       }
+  }
 
-    streamingContext.start()
-    streamingContext.awaitTermination()
+  def detectCancellations(purchasesStream: DStream[(String, Purchase)], broadcastBrokers: Broadcast[String]) = {
+    purchasesStream
+      .filter(tuple => isCancellation(tuple._2))
+      .countByWindow(Minutes(8), Seconds(1))
+      .transform { invoicesTupleRDD => // TODO: Refactor this :9
+        invoicesTupleRDD.map(count => (count.toString, count.toString))
+      }
+      .foreachRDD { rdd =>
+        publishToKafka(CANCELLATIONS_TOPIC, broadcastBrokers, rdd)
+      }
   }
 
   def updateFunction(purchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
 
-    //    val invoice: Invoice = purchases.to.aggregate { purchase: Purchase => {
+    val invoiceNo = purchases.head.invoiceNo
+    val unitPrices = purchases.map(purchase => purchase.unitPrice)
 
-    val previousState: Invoice = state.getOrElse(Invoice("", 0, 0, 0, 0, 0, 0, 0, ""))
-    //    val currentCount = previousState.lines + state.size
-    //    val average = (previousState.avgUnitPrice * previousState.lines + purchases.sum) / currentCount
-    val invoiceNo = ""
-    val average: Double = 0.0f
-    val minimun = 0
-    val maximun = 0
-    val time = 0
-    val numerOfItems = previousState.numberItems + 0 // purchases.aggregate(_ => _.)
-    val lines = previousState.lines + state.size
+    val average: Double = unitPrices.sum / unitPrices.length
+    val minimum: Double = unitPrices.min
+    val maximum: Double = unitPrices.max
+    val time = getHour(purchases.head.invoiceDate)
+    val numberOfItems = purchases.map(purchase => purchase.quantity).sum
+    val lines = purchases.length
     val lastUpdated = 0
-    val country = ""
+    val customer = purchases.head.customerID
 
-    Some(new Invoice(invoiceNo, average, minimun, maximun, time, numerOfItems, lines, lastUpdated, country))
+    Some(Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lines, lastUpdated, customer))
+  }
 
-    //      purchase.invoiceNo
-    //      ,
-    //      mean(purchase.unitPrice)
-    //      ,
-    //      min(purchase.unitPrice)
-    //      ,
-    //      max(purchase.unitPrice)
-    //      ,
-    //      min("UnitPrice").alias("MinUnitPrice")
-    //      ,
-    //      max("UnitPrice").alias("MaxUnitPrice")
-    //      ,
-    //      first("Hour").alias("Time")
-    //      ,
-    //      purchase.quantity. sum().alias("NumberItems")
-    //      )
-    //  }
-    //}
+  def getHour(dateTime: String): Double = {
+    var hour: Double = 0.0f
 
+    val parsedDateTime = dateTime.substring(10).split(":")(0)
+    if (!StringUtils.isEmpty(parsedDateTime))
+      hour = parsedDateTime.trim.toDouble
 
-    //Option (invoice)
-    //    Option(Invoice("IDX", 0.1, 0.2, 0.3, 0.4, 0.5, 1, 1, "CUSTOMER"))
+    hour
   }
 
   /**
@@ -148,50 +163,54 @@ object InvoicePipeline {
     record.getString(7)
   )
 
-  def detectAnomaliesWithKMeans(invoicesFeed: Invoice, model: Broadcast[KMeansModel], threshold: Broadcast[Float]) = {
-    //    val anomalies = invoicesFeed.foreachRDD { invoice =>
-    //      invoice.
-    //      val invoiceProperties = Vector(invoice.invoiceNo, invoice.avgUnitPrice, invoice.minUnitPrice,
-    //        invoice.maxUnitPrice, invoice.time, invoice.numberItems)
-    //      invoice.
-    //      val distance: Double = distToCentroidFromKMeans(invoice, model.value)
-    //      distance.>(threshold.value)
-    //  }
+  def detectAnomaly(invoices: DStream[(String, Invoice)], model: Any, threshold: Broadcast[Double],
+                    topic: String, broadcastBrokers: Broadcast[String]) = {
+    invoices
+      .filter { tuple =>
+        isAnomaly(tuple._2, model, threshold)
+      }
+      .transform { invoicesTupleRDD => // TODO: Refactor this :9
+        invoicesTupleRDD.map { invoiceTuple =>
+          val invoiceNo = invoiceTuple._1
+
+          (invoiceNo, invoiceNo)
+        }
+      }
+      .foreachRDD { rdd =>
+        publishToKafka(topic, broadcastBrokers, rdd)
+      }
   }
 
-  //    def filterPurchase(newValues: Seq[Purchase], runningCount: Option[Purchase]): Option[T] = {
-  //
-  //    }
+  private def isAnomaly(invoice: Invoice, model: Any, threshold: Broadcast[Double]): Boolean = {
+    val featuresBuffer = ArrayBuffer[Double]()
 
-  //  class KafkaSink(createProducer: () => KafkaProducer[String, String]) extends Serializable {
-  //
-  //    lazy val producer = createProducer()
-  //
-  //    def send(topic: String, value: String): Unit = producer.send(new ProducerRecord(topic, value))
-  //  }
-  //
-  //  object KafkaSink {
-  //    def apply(kafkaBrokers: Broadcast[String]): KafkaSink = {
-  //      val f = () => {
-  //        new KafkaProducer[String, String](createKafkaConfiguration(kafkaBrokers.value))
-  //      }
-  //      new KafkaSink(f)
-  //    }
-  //  }
+    featuresBuffer.append(invoice.avgUnitPrice)
+    featuresBuffer.append(invoice.minUnitPrice)
+    featuresBuffer.append(invoice.maxUnitPrice)
+    featuresBuffer.append(invoice.time)
+    featuresBuffer.append(invoice.numberItems)
 
-  //  object AccCounter {
-  //
-  //    @volatile private var instance: LongAccumulator = null
-  //
-  //    def getInstance(sc: SparkContext): LongAccumulator = {
-  //      if (instance == null) {
-  //        synchronized {
-  //          if (instance == null) {
-  //            instance = sc.longAccumulator("AccCounter")
-  //          }
-  //        }
-  //      }
-  //      instance
-  //    }
-  //  }
+    val features = Vectors.dense(featuresBuffer.toArray)
+
+    val distance = model match {
+      case model: KMeansModel => distToCentroidFromKMeans(features, model.asInstanceOf[KMeansModel])
+      case model: BisectingKMeansModel => distToCentroidFromBisectingKMeans(features, model.asInstanceOf[BisectingKMeansModel])
+    }
+
+    distance.>(threshold.value)
+  }
+
+  private def isCancellation(purchase: Purchase): Boolean = {
+    purchase.quantity.<(0)
+  }
+
+  private def isWrongPurchase(purchase: Purchase): Boolean = {
+    purchase.invoiceNo.isEmpty &&
+      purchase.invoiceDate.isEmpty &&
+      purchase.unitPrice.isNaN &&
+      purchase.quantity.isNaN &&
+      purchase.customerID.isEmpty &&
+      purchase.country.isEmpty &&
+      purchase.unitPrice.<=(0)
+  }
 }

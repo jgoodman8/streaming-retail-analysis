@@ -22,13 +22,12 @@ object KafkaConsumer {
     KafkaUtils.createStream(streamingContext, zookeeperQuorum, groupId, topicMap)
   }
 
-  def publishToKafka(topic: String)(kafkaBrokers: Broadcast[String])(rdd: RDD[(String, String)]) = {
+  def publishToKafka(topic: String, kafkaBrokers: Broadcast[String], rdd: RDD[(String, String)]) = {
     rdd.foreachPartition(partition => {
       val kafkaConfiguration = createKafkaConfiguration(kafkaBrokers.value)
       val producer = new KafkaProducer[String, String](kafkaConfiguration)
 
       partition.foreach(record => {
-        println(record._2)
         producer.send(new ProducerRecord[String, String](topic, record._1, record._2.toString))
       })
 

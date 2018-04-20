@@ -34,6 +34,7 @@ object TrainInvoices {
     dataSet.cache()
     dataSet.take(30).foreach(println)
 
+    print(modelType)
     // Train and get distances between centroids
     val distances: RDD[Double] = if (modelType == K_MEANS_MODEL) {
       val model: KMeansModel = trainKMeansModel(dataSet)
