@@ -63,7 +63,7 @@ object InvoicePipeline {
 
     val invoices = purchasesStream
       .window(Seconds(40), Seconds(1))
-      .updateStateByKey(updateFunction)
+      .updateStateByKey(calculateInvoice)
 
     detectAnomaly(invoices, kMeansModel, kMeansThreshold, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
     detectAnomaly(invoices, bisectionKMeans, bisectionThreshold, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
@@ -101,7 +101,7 @@ object InvoicePipeline {
   def detectCancellations(purchasesStream: DStream[(String, Purchase)], broadcastBrokers: Broadcast[String]) = {
     purchasesStream
       .filter(tuple => isCancellation(tuple._2))
-      .countByWindow(Minutes(8), Seconds(1))
+      .countByWindow(Seconds(8), Seconds(1))
       .transform { invoicesTupleRDD => // TODO: Refactor this :9
         invoicesTupleRDD.map(count => (count.toString, count.toString))
       }
@@ -110,7 +110,7 @@ object InvoicePipeline {
       }
   }
 
-  def updateFunction(purchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
+  def calculateInvoice(purchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
 
     val invoiceNo = purchases.head.invoiceNo
     val unitPrices = purchases.map(purchase => purchase.unitPrice)
@@ -205,12 +205,9 @@ object InvoicePipeline {
   }
 
   private def isWrongPurchase(purchase: Purchase): Boolean = {
-    purchase.invoiceNo.isEmpty &&
-      purchase.invoiceDate.isEmpty &&
-      purchase.unitPrice.isNaN &&
-      purchase.quantity.isNaN &&
-      purchase.customerID.isEmpty &&
-      purchase.country.isEmpty &&
-      purchase.unitPrice.<=(0)
+    purchase.invoiceNo == null || purchase.invoiceDate == null || purchase.customerID == null ||
+      purchase.invoiceNo.isEmpty || purchase.invoiceDate.isEmpty || purchase.customerID.isEmpty ||
+      purchase.unitPrice.isNaN || purchase.quantity.isNaN || purchase.country.isEmpty ||
+      purchase.unitPrice.<(0)
   }
 }

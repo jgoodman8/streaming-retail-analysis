@@ -12,7 +12,7 @@ spark_streaming/.idea
 spark_streaming/project/target
 spark_streaming/project/project/target
 spark_streaming/checkpoint
-spark_streaming/thresholds
+spark_streaming/threshold
 spark_streaming/clustering_bisect
 spark_streaming/clustering
-spark_streaming/thresholds_bisect
+spark_streaming/threshold_bisect
