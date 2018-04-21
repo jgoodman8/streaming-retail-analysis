@@ -1,12 +1,11 @@
 package es.dmr.uimp.clustering
 
+import es.dmr.uimp.clustering.Clustering._
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.{SparkConf, SparkContext}
-
-import es.dmr.uimp.clustering.Clustering._
 
 object TrainInvoices {
 
@@ -25,6 +24,11 @@ object TrainInvoices {
     val Array(trainDataRoute, modelStorageRoute, thresholdsStorageRoute, modelType) = args
     val appName = BASE_APP_NAME + modelType
 
+    if (modelType != K_MEANS_MODEL || modelType != BISECTION_K_MEANS_MODEL) {
+      System.err.println("Invalid model name. Required types: <kMeans | BisKMeans>")
+      System.exit(1)
+    }
+
     val sparkConfiguration = new SparkConf().setAppName(appName)
     val sparkContext = new SparkContext(sparkConfiguration)
 
@@ -34,21 +38,16 @@ object TrainInvoices {
     dataSet.cache()
     dataSet.take(30).foreach(println)
 
-    print(modelType)
-    // Train and get distances between centroids
     val distances: RDD[Double] = if (modelType == K_MEANS_MODEL) {
       val model: KMeansModel = trainKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
       dataSet.map(instance => distToCentroidFromKMeans(instance, model))
-    } else if (modelType == BISECTION_K_MEANS_MODEL) {
+    } else {
       val model: BisectingKMeansModel = trainBisectingKMeansModel(dataSet)
       model.save(sparkContext, modelStorageRoute)
 
       dataSet.map(instance => distToCentroidFromBisectingKMeans(instance, model))
-    } else {
-      System.err.println("Invalid model name. Required types: kMeans, BisKMeans")
-      return System.exit(1)
     }
 
     val threshold = distances.top(2000).last // set the last of the furthest 2000 data points as the threshold
