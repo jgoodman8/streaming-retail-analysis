@@ -23,6 +23,18 @@ Finalmente, necesitamos configurar el entorno del simulador de compras. Para ell
 tail -n +2 resources/online_retail.csv > resources/retail.csv
 ```
 
+Es posible que sea necesario actualizar la versión de Java, asi como instalar Maven.
+
+```{bash}
+sudo add-apt-repository ppa:openjdk-r/ppa
+sudo apt-get update
+sudo apt-get install openjdk-8-jre
+sudo update-alternatives --config java
+# seleccionar la versión 8 de java
+
+apt-get install maven
+```
+
 Así mismo, para compilar dicho simulador, necesitamos tener instalado *sbt* ([vease el manual de instalación de *sbt*](https://www.scala-sbt.org/0.13/docs/Installing-sbt-on-Linux.html)).
  
 ```
@@ -58,11 +70,34 @@ El contenido de esta práctica se encuentra en el fichero `spark_streaming`.
 
 ### Preparación del entorno
 
+Es posible que sea necesario actualizar la versión de Java, asi como instalar Maven.
+
+```{bash}
+sudo add-apt-repository ppa:openjdk-r/ppa
+sudo apt-get update
+sudo apt-get install openjdk-8-jre
+sudo update-alternatives --config java
+# seleccionar la versión 8 de java
+
+apt-get install maven
+```
+
 Antes de comenzar con la ejecución, debemos compilar el código. Para dicha compilación, necesitamos tener instalado *sbt* ([vease el manual de instalación de *sbt*](https://www.scala-sbt.org/0.13/docs/Installing-sbt-on-Linux.html)).
 
 ```{bash}
 cd spark_streaming
 sbt assembly
+```
+
+Finalmente, es necesario instalar Spark. Lo realizaremos en modo *standalone*.
+
+```{bash}
+wget https://archive.apache.org/dist/spark/spark-2.0.0/spark-2.0.0-bin-hadoop2.7.tgz
+tar xvf spark-2.0.0-bin-hadoop2.7.tgz
+rm spark-2.0.0-bin-hadoop2.7.tgz
+mv spark-2.0.0-bin-hadoop2.7/ /opt/spark-2.0.0-bin-hadoop2.7
+echo 'export PATH=$PATH:/opt/spark-2.0.0-bin-hadoop2.7/bin' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ### Ejecución

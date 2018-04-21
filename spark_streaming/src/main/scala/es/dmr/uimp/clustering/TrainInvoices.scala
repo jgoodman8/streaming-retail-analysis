@@ -24,7 +24,7 @@ object TrainInvoices {
     val Array(trainDataRoute, modelStorageRoute, thresholdsStorageRoute, modelType) = args
     val appName = BASE_APP_NAME + modelType
 
-    if (modelType != K_MEANS_MODEL || modelType != BISECTION_K_MEANS_MODEL) {
+    if (modelType != K_MEANS_MODEL && modelType != BISECTION_K_MEANS_MODEL) {
       System.err.println("Invalid model name. Required types: <kMeans | BisKMeans>")
       System.exit(1)
     }
