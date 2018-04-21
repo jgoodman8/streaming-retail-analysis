@@ -21,6 +21,7 @@ object InvoicePipeline {
 
   def main(args: Array[String]) {
 
+    // Initialization of properties
     val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics, numThreads, brokers) = args
 
     val sparkConf = new SparkConf().setAppName("InvoicePipeline").setMaster("local[4]")
@@ -28,6 +29,7 @@ object InvoicePipeline {
     val streamingContext = new StreamingContext(sparkContext, Seconds(1))
     streamingContext.checkpoint(CHECKPOINT_PATH)
 
+    // Models and thresholds load and broadcasting to worker nodes
     val kMeansData = loadKMeansAndThreshold(sparkContext, modelFile, thresholdFile)
     val kMeansModel: Broadcast[KMeansModel] = streamingContext.sparkContext.broadcast(kMeansData._1)
     val kMeansThreshold: Broadcast[Double] = streamingContext.sparkContext.broadcast(kMeansData._2)
@@ -38,20 +40,25 @@ object InvoicePipeline {
 
     val broadcastBrokers: Broadcast[String] = streamingContext.sparkContext.broadcast(brokers)
 
+    // Get feed from kafka and conversion to scala object from string
     val kafkaFeed: DStream[(String, String)] = connectToKafka(streamingContext, zookeeperCluster, group, topics, numThreads)
 
     val purchasesStream = getPurchasesStream(kafkaFeed)
 
+    // Detection of cancellations and wrong purchases
     detectWrongPurchases(purchasesStream, broadcastBrokers)
     detectCancellations(purchasesStream, broadcastBrokers)
 
+    // Creating an invoice feed from the invoices feed
     val invoices: DStream[(String, Invoice)] = purchasesStream
       .window(Seconds(40), Seconds(1))
       .updateStateByKey(calculateInvoice)
 
+    // Detection of anomalies for both models: kMeans and Bisection kMeans
     detectAnomaly(invoices, kMeansModel.value, kMeansThreshold.value, K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
     detectAnomaly(invoices, bisectionKMeans.value, bisectionThreshold.value, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
 
+    // Start pipeline
     streamingContext.start()
     streamingContext.awaitTermination()
   }
@@ -105,7 +112,7 @@ object InvoicePipeline {
   def detectCancellations(purchasesStream: DStream[(String, Purchase)], broadcastBrokers: Broadcast[String]): Unit = {
     purchasesStream
       .filter(tuple => isCancellation(tuple._2))
-      .countByWindow(Seconds(8), Seconds(1))
+      .countByWindow(Minutes(8), Seconds(1))
       .transform { invoicesTupleRDD =>
         invoicesTupleRDD.map(count => (count.toString, count.toString))
       }
