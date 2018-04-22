@@ -51,6 +51,7 @@ object InvoicePipeline {
 
     // Creating an invoice feed from the invoices feed
     val invoices: DStream[(String, Invoice)] = purchasesStream
+      .filter(tuple => !isWrongPurchase(tuple._2))
       .window(Seconds(40), Seconds(1))
       .updateStateByKey(calculateInvoice)
 
