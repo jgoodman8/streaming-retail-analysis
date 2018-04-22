@@ -24,7 +24,7 @@ object InvoicePipeline {
     // Initialization of properties
     val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics, numThreads, brokers) = args
 
-    val sparkConf = new SparkConf().setAppName("InvoicePipeline").setMaster("local[4]")
+    val sparkConf = new SparkConf().setAppName("InvoicePipeline")
     val sparkContext = new SparkContext(sparkConf)
     val streamingContext = new StreamingContext(sparkContext, Seconds(1))
     streamingContext.checkpoint(CHECKPOINT_PATH)
