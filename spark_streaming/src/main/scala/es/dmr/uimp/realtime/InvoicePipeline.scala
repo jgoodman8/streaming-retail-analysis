@@ -11,6 +11,8 @@ import org.apache.spark.streaming._
 import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.{SparkConf, SparkContext}
 
+import scala.collection.mutable.ListBuffer
+
 object InvoicePipeline {
 
   val CANCELLATIONS_TOPIC = "cancelaciones"
@@ -24,7 +26,7 @@ object InvoicePipeline {
     // Initialization of properties
     val Array(modelFile, thresholdFile, modelFileBisect, thresholdFileBisect, zookeeperCluster, group, topics, numThreads, brokers) = args
 
-    val sparkConf = new SparkConf().setAppName("InvoicePipeline")
+    val sparkConf = new SparkConf().setAppName("InvoicePipeline").setMaster("local[4]")
     val sparkContext = new SparkContext(sparkConf)
     val streamingContext = new StreamingContext(sparkContext, Seconds(1))
     streamingContext.checkpoint(CHECKPOINT_PATH)
@@ -43,17 +45,26 @@ object InvoicePipeline {
     // Get feed from kafka and conversion to scala object from string
     val kafkaFeed: DStream[(String, String)] = connectToKafka(streamingContext, zookeeperCluster, group, topics, numThreads)
 
-    val purchasesStream = getPurchasesStream(kafkaFeed)
+    val purchasesStream: DStream[(String, Purchase)] = getPurchasesStream(kafkaFeed)
+
+    val purchasesListStream = purchasesStream
+      .mapWithState(StateSpec.function(mappingFunction _).timeout(Seconds(40)))
+
 
     // Detection of cancellations and wrong purchases
     detectWrongPurchases(purchasesStream, broadcastBrokers)
     detectCancellations(purchasesStream, broadcastBrokers)
 
     // Creating an invoice feed from the invoices feed
-    val invoices: DStream[(String, Invoice)] = purchasesStream
-      .filter(tuple => !isWrongPurchase(tuple._2))
-      .window(Seconds(40), Seconds(1))
-      .updateStateByKey(calculateInvoice)
+    val invoices: DStream[Option[Invoice]] = purchasesListStream
+      .filter(_.isDefined)
+      .filter(purchasesList => !purchasesList.get.forall(isWrongPurchase))
+      .transform({ purchasesTupleRDD =>
+        purchasesTupleRDD.map(calculateInvoice)
+      })
+    //      .window(Seconds(40), Seconds(1))
+    //      .updateStateByKey(calculateInvoice)
+
 
     // Detection of anomalies for both models: kMeans and Bisection kMeans
     detectAnomaly(invoices, kMeansModel.value, kMeansThreshold.value, K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
@@ -62,6 +73,30 @@ object InvoicePipeline {
     // Start pipeline
     streamingContext.start()
     streamingContext.awaitTermination()
+  }
+
+  def mappingFunction(key: String, value: Option[Purchase], state: State[ListBuffer[Purchase]]): Option[ListBuffer[Purchase]] = {
+    value match {
+      case Some(purchase) =>
+
+        val result: ListBuffer[Purchase] = state
+          .getOption()
+          .getOrElse(default = ListBuffer[Purchase]())
+
+        result.append(purchase)
+
+        if (!state.isTimingOut()) {
+          state.update(result)
+        }
+
+        None
+
+      case _ if state.isTimingOut() =>
+        val purchases = state.getOption()
+        //        state.remove()
+
+        purchases
+    }
   }
 
   /**
@@ -132,15 +167,14 @@ object InvoicePipeline {
     * @param topic            Target kafka topic
     * @param broadcastBrokers Kafka brokers
     */
-  def detectAnomaly(invoices: DStream[(String, Invoice)], model: Saveable, threshold: Double, topic: String,
+  def detectAnomaly(invoices: DStream[Option[Invoice]], model: Saveable, threshold: Double, topic: String,
                     broadcastBrokers: Broadcast[String]): Unit = {
     invoices
-      .filter { tuple =>
-        val invoice: Invoice = tuple._2
-        isAnomaly(invoice, model, threshold)
+      .filter { invoice: Option[Invoice] =>
+        isAnomaly(invoice.get, model, threshold)
       }
       .transform { invoicesTupleRDD =>
-        invoicesTupleRDD.map(invoiceTuple => (invoiceTuple._1, invoiceTuple._2.toString))
+        invoicesTupleRDD.map(invoiceTuple => (invoiceTuple.get.invoiceNo, invoiceTuple.get.toString))
       }
       .foreachRDD { rdd =>
         publishToKafka(topic, broadcastBrokers, rdd)

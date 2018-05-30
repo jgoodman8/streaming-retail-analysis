@@ -97,7 +97,8 @@ object Clustering {
       val ratio = costs(index) / costs(index - 1)
 
       if (ratio > 0.7 && k == 0) {
-        k = index + 1
+        k = index
+        return k
       }
     }
 

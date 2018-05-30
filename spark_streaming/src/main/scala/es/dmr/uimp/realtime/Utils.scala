@@ -9,7 +9,7 @@ import org.apache.spark.mllib.clustering.{BisectingKMeansModel, KMeansModel}
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.util.Saveable
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
 object Utils {
 
@@ -18,24 +18,27 @@ object Utils {
     * a proper formatted object for each sequence
     *
     * @param purchases Purchases sequence (same invoiceNo)
-    * @param state     Actual state
     * @return An invoice object
     */
-  def calculateInvoice(purchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
+  def calculateInvoice(purchases: Option[ListBuffer[Purchase]]): Option[Invoice] = {
 
-    val invoiceNo = purchases.head.invoiceNo
-    val unitPrices = purchases.map(purchase => purchase.unitPrice)
+    val purchasesSequence = purchases.get.toSeq
+
+    val invoiceNo = purchasesSequence.head.invoiceNo
+    val unitPrices = purchasesSequence.map(purchase => purchase.unitPrice)
 
     val average: Double = unitPrices.sum / unitPrices.length
     val minimum: Double = unitPrices.min
     val maximum: Double = unitPrices.max
-    val time = getHourFromDateTime(purchases.head.invoiceDate)
-    val numberOfItems = purchases.map(purchase => purchase.quantity).sum
-    val lines = purchases.length
+    val time = getHourFromDateTime(purchasesSequence.head.invoiceDate)
+    val numberOfItems = purchasesSequence.map(purchase => purchase.quantity).sum
+    val lines = purchasesSequence.length
     val lastUpdated = 0
-    val customer = purchases.head.customerID
+    val customer = purchasesSequence.head.customerID
 
-    Some(Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lines, lastUpdated, customer))
+    val invoice = Some(Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lines, lastUpdated, customer))
+
+    invoice
   }
 
   /**
