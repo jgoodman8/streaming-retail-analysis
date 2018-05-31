@@ -1,5 +1,7 @@
 package es.dmr.uimp.realtime
 
+import java.util.Date
+
 import com.univocity.parsers.common.record.Record
 import com.univocity.parsers.csv.{CsvParser, CsvParserSettings}
 import es.dmr.uimp.clustering.TrainInvoices.{distToCentroidFromBisectingKMeans, distToCentroidFromKMeans}
@@ -17,28 +19,27 @@ object Utils {
     * For a given sequence of purchases (owning to the same invoice), it calculates the invoice properties and returns a
     * a proper formatted object for each sequence
     *
-    * @param purchases Purchases sequence (same invoiceNo)
-    * @return An invoice object
+    * @param newPurchases
+    * @param previousInvoice
+    * @return
     */
-  def calculateInvoice(purchases: Option[ListBuffer[Purchase]]): Option[Invoice] = {
+  def calculateInvoice(newPurchases: Seq[Purchase], previousInvoice: Invoice): Invoice = {
 
-    val purchasesSequence = purchases.get.toSeq
+    val now = (new Date).getTime / 1000
 
-    val invoiceNo = purchasesSequence.head.invoiceNo
-    val unitPrices = purchasesSequence.map(purchase => purchase.unitPrice)
+    val invoiceNo = newPurchases.head.invoiceNo
+    val customer = newPurchases.head.customerID
+    val newUnitPrices = newPurchases.map(purchase => purchase.unitPrice)
 
-    val average: Double = unitPrices.sum / unitPrices.length
-    val minimum: Double = unitPrices.min
-    val maximum: Double = unitPrices.max
-    val time = getHourFromDateTime(purchasesSequence.head.invoiceDate)
-    val numberOfItems = purchasesSequence.map(purchase => purchase.quantity).sum
-    val lines = purchasesSequence.length
-    val lastUpdated = 0
-    val customer = purchasesSequence.head.customerID
+    val maximum = if (previousInvoice.maxUnitPrice > newUnitPrices.max) previousInvoice.maxUnitPrice else newUnitPrices.max
+    val minimum = if (previousInvoice.maxUnitPrice > newUnitPrices.min) previousInvoice.minUnitPrice else newUnitPrices.min
+    val numberOfItems = newPurchases.map(purchase => purchase.quantity).sum + previousInvoice.numberItems
+    val time = getHourFromDateTime(newPurchases.head.invoiceDate)
+    val lastUpdated = if (previousInvoice.lastUpdated == 0.0) now else previousInvoice.lastUpdated
+    val lines = newPurchases.length + previousInvoice.lines
+    val average = (previousInvoice.avgUnitPrice * previousInvoice.lines + newUnitPrices.sum) / lines
 
-    val invoice = Some(Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lines, lastUpdated, customer))
-
-    invoice
+    Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lastUpdated, lines, customer)
   }
 
   /**
@@ -70,7 +71,7 @@ object Utils {
     */
   def isAnomaly(invoice: Invoice, model: Saveable, threshold: Double): Boolean = {
     val featuresBuffer = ArrayBuffer[Double]()
-    println(invoice.toString)
+
     featuresBuffer.append(invoice.avgUnitPrice)
     featuresBuffer.append(invoice.minUnitPrice)
     featuresBuffer.append(invoice.maxUnitPrice)
@@ -88,13 +89,13 @@ object Utils {
   }
 
   /**
-    * Given a purchase, checks if the quantity property is negative. If so, it is a cancellation
+    * Given a invoice, checks if the quantity property is negative. If so, it is a cancellation
     *
-    * @param purchase A purchase input
-    * @return True if the purchase is a cancellation
+    * @param invoice A invoice input
+    * @return True if the invoice is a cancellation
     */
-  def isCancellation(purchase: Purchase): Boolean = {
-    purchase.quantity.<(0)
+  def isCancellation(invoice: Invoice): Boolean = {
+    invoice.invoiceNo.startsWith("C")
   }
 
   /**
