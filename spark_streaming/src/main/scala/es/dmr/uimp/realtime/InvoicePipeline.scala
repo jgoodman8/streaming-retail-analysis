@@ -1,5 +1,7 @@
 package es.dmr.uimp.realtime
 
+import java.util.Date
+
 import es.dmr.uimp.realtime.KafkaConsumer._
 import es.dmr.uimp.realtime.Loaders._
 import es.dmr.uimp.realtime.Model._
@@ -20,6 +22,7 @@ object InvoicePipeline {
   val K_MEANS_ANOMALIES_TOPIC = "anomalias_kmeans"
   val BISECTION_K_MEANS_ANOMALIES_TOPIC = "anomalias_bisect_kmeans"
   val CHECKPOINT_PATH = "./checkpoint"
+  val SLA_DURATION = 40L
 
   def main(args: Array[String]) {
 
@@ -47,8 +50,13 @@ object InvoicePipeline {
 
     val purchasesStream: DStream[(String, Purchase)] = getPurchasesStream(kafkaFeed)
 
-    val purchasesListStream = purchasesStream
-      .mapWithState(StateSpec.function(mappingFunction _).timeout(Seconds(40)))
+    val invoicesPipeline = purchasesStream
+      .filter { item =>
+        !isWrongPurchase(item._2)
+      }
+      .updateStateByKey[Invoice](updateFunction _)
+    //      .filter(invoice => invoice._2.time + SLA_DURATION > System.currentTimeMillis.toInt / 1000)
+    //      .mapWithState(StateSpec.function(mappingFunction _).timeout(Seconds(40)))
 
 
     // Detection of cancellations and wrong purchases
@@ -56,23 +64,49 @@ object InvoicePipeline {
     detectCancellations(purchasesStream, broadcastBrokers)
 
     // Creating an invoice feed from the invoices feed
-    val invoices: DStream[Option[Invoice]] = purchasesListStream
-      .filter(_.isDefined)
-      .filter(purchasesList => !purchasesList.get.forall(isWrongPurchase))
-      .transform({ purchasesTupleRDD =>
-        purchasesTupleRDD.map(calculateInvoice)
-      })
+    //    val invoices: DStream[Option[Invoice]] = purchasesListStream
+    //      .filter(_.isDefined)
+    //      .filter(purchasesList => !purchasesList.get.forall(isWrongPurchase))
+    //      .transform({ purchasesTupleRDD =>
+    //        purchasesTupleRDD.map(calculateInvoice)
+    //      })
     //      .window(Seconds(40), Seconds(1))
     //      .updateStateByKey(calculateInvoice)
 
 
     // Detection of anomalies for both models: kMeans and Bisection kMeans
-    detectAnomaly(invoices, kMeansModel.value, kMeansThreshold.value, K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
-    detectAnomaly(invoices, bisectionKMeans.value, bisectionThreshold.value, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
+    detectAnomaly(invoicesPipeline, kMeansModel.value, kMeansThreshold.value, K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
+    detectAnomaly(invoicesPipeline, bisectionKMeans.value, bisectionThreshold.value, BISECTION_K_MEANS_ANOMALIES_TOPIC, broadcastBrokers)
 
     // Start pipeline
     streamingContext.start()
     streamingContext.awaitTermination()
+  }
+
+  def updateFunction(newPurchases: Seq[Purchase], state: Option[Invoice]): Option[Invoice] = {
+    val previousState: Invoice = state.getOrElse(Invoice())
+    val now = (new Date).getTime / 1000
+
+    if (previousState.lastUpdated + SLA_DURATION > now) {
+      return None
+    }
+
+    val newUnitPrices = newPurchases.map(purchase => purchase.unitPrice)
+
+    val invoiceNo = newPurchases.head.invoiceNo
+    val customer = newPurchases.head.customerID
+
+    val maximum = if (previousState.maxUnitPrice > newUnitPrices.max) previousState.maxUnitPrice else newUnitPrices.max
+    val minimum = if (previousState.maxUnitPrice > newUnitPrices.min) previousState.minUnitPrice else newUnitPrices.min
+    val numberOfItems = newPurchases.map(purchase => purchase.quantity).sum + previousState.numberItems
+    val time = getHourFromDateTime(newPurchases.head.invoiceDate)
+    val lastUpdated = if (previousState.lastUpdated == 0.0) now else previousState.lastUpdated
+    val lines = newPurchases.length + previousState.lines
+    val average = (previousState.avgUnitPrice * previousState.lines + newUnitPrices.sum) / lines
+
+    val invoice = Some(Invoice(invoiceNo, average, minimum, maximum, time, numberOfItems, lastUpdated, lines, customer))
+
+    invoice
   }
 
   def mappingFunction(key: String, value: Option[Purchase], state: State[ListBuffer[Purchase]]): Option[ListBuffer[Purchase]] = {
@@ -167,14 +201,14 @@ object InvoicePipeline {
     * @param topic            Target kafka topic
     * @param broadcastBrokers Kafka brokers
     */
-  def detectAnomaly(invoices: DStream[Option[Invoice]], model: Saveable, threshold: Double, topic: String,
+  def detectAnomaly(invoices: DStream[(String, Invoice)], model: Saveable, threshold: Double, topic: String,
                     broadcastBrokers: Broadcast[String]): Unit = {
     invoices
-      .filter { invoice: Option[Invoice] =>
-        isAnomaly(invoice.get, model, threshold)
+      .filter { invoice =>
+        isAnomaly(invoice._2, model, threshold)
       }
       .transform { invoicesTupleRDD =>
-        invoicesTupleRDD.map(invoiceTuple => (invoiceTuple.get.invoiceNo, invoiceTuple.get.toString))
+        invoicesTupleRDD.map(invoiceTuple => (invoiceTuple._2.invoiceNo, invoiceTuple._2.toString))
       }
       .foreachRDD { rdd =>
         publishToKafka(topic, broadcastBrokers, rdd)

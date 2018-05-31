@@ -70,7 +70,7 @@ object Utils {
     */
   def isAnomaly(invoice: Invoice, model: Saveable, threshold: Double): Boolean = {
     val featuresBuffer = ArrayBuffer[Double]()
-
+    println(invoice.toString)
     featuresBuffer.append(invoice.avgUnitPrice)
     featuresBuffer.append(invoice.minUnitPrice)
     featuresBuffer.append(invoice.maxUnitPrice)
@@ -131,7 +131,7 @@ object Utils {
     * @param dateTime An date-time string with a format like dd/MM/YYYY hh:mm
     * @return Returns the hour related to the input string
     */
-  private def getHourFromDateTime(dateTime: String): Double = {
+  def getHourFromDateTime(dateTime: String): Double = {
     var hour: Double = 0.0f
 
     val parsedDateTime = dateTime.substring(10).split(":")(0)
