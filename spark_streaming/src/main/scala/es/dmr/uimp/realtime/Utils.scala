@@ -50,13 +50,13 @@ object Utils {
     * @return A purchase instance
     */
   def parsePurchase(purchase: String): Purchase = {
-    val csvParserSettings = new CsvParserSettings()
-    csvParserSettings.detectFormatAutomatically()
-    val csvParser = new CsvParser(csvParserSettings)
+    //    val csvParserSettings = new CsvParserSettings()
+    //    csvParserSettings.detectFormatAutomatically()
+    val csvParser = new CsvParser(new CsvParserSettings())
 
-    val parsedPurchase = csvParser.parseRecord(purchase)
+    val parsedPurchase: Array[String] = csvParser.parseLine(purchase)
 
-    recordToPurchase(parsedPurchase)
+    parsedStringToPurchase(parsedPurchase)
   }
 
   /**
@@ -114,16 +114,16 @@ object Utils {
   /**
     * Given a Record object, returns a Purchase object
     *
-    * @param record Record input (parseRecord output from CsvParser class)
+    * @param parsedItems Record input (parseRecord output from CsvParser class)
     * @return A Purchase instance
     */
-  private def recordToPurchase(record: Record) = Purchase(
-    record.getString(0),
-    record.getInt(3),
-    record.getString(4),
-    record.getDouble(5),
-    record.getString(6),
-    record.getString(7)
+  private def parsedStringToPurchase(parsedItems: Array[String]) = Purchase(
+    parsedItems(0),
+    parsedItems(3).toInt,
+    parsedItems(4),
+    parsedItems(5).toDouble,
+    parsedItems(6),
+    parsedItems(7)
   )
 
   /**
